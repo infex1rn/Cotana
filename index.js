@@ -13,9 +13,9 @@ dotenv.config()
 let pairingCode = null
 let isConnected = false
 let botProcess = null
-let botStats = null 
+let botStats = null
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://localhost:27017'
-const phoneNumber = process.env.PHONE_NUMBER || ''
+const phoneNumber = process.env.PHONE_NUMBER
 
 figlet(
   'COTANA OS',
@@ -90,15 +90,19 @@ app.get('/bot-stats', (req, res) => {
   }
 })
 
-app.listen(port, () => {
-  console.log(chalk.green(`Server running on port ${port}`))
-  console.log(chalk.cyan('Open your browser and navigate to:'))
-  console.log(chalk.yellow(`http://localhost:${port}`))
-  
-  startBot()
-  
-  setInterval(requestBotStats, 30000)
-})
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === __filename
+
+if (isMainModule) {
+  app.listen(port, () => {
+    console.log(chalk.green(`Server running on port ${port}`))
+    console.log(chalk.cyan('Open your browser and navigate to:'))
+    console.log(chalk.yellow(`http://localhost:${port}`))
+
+    startBot()
+
+    setInterval(requestBotStats, 30000)
+  })
+}
 
 function startBot() {
   if (botProcess) return
@@ -114,14 +118,14 @@ function startBot() {
 
   const currentFilePath = new URL(import.meta.url).pathname
   const args = [path.join(path.dirname(currentFilePath), 'Cotana.js'), ...process.argv.slice(2)]
-  
+
   const env = {
     ...process.env,
     MONGODB_URI: mongodbUri,
     PHONE_NUMBER: phoneNumber,
     PAIRING_MODE: 'true'
   }
-  
+
   botProcess = spawn(process.argv[0], args, {
     stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     env
@@ -129,7 +133,7 @@ function startBot() {
 
   botProcess.on('message', data => {
     console.log(chalk.cyan(`✔️RECEIVED ${JSON.stringify(data)}`))
-    
+
     if (typeof data === 'object' && data.type === 'pairing-code') {
       pairingCode = data.code
       console.log(chalk.green(`Pairing code received: ${pairingCode}`))
@@ -169,7 +173,7 @@ function startBot() {
     console.error(chalk.red(`Error: ${err}`))
     botProcess.kill()
     botProcess = null
-    
+
     setTimeout(() => {
       console.log(chalk.yellow('Attempting to restart bot after error...'))
       startBot()

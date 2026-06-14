@@ -24,7 +24,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
 
   if (command === 'resetai') {
     delete conversationHistory[userId]
-    return m.reply(formatResponse('Fine, I forgot everything. We're starting fresh, but don't be boring this time! 😈🍭'))
+    return m.reply(formatResponse("Fine, I forgot everything. We're starting fresh, but don't be boring this time! 😈🍭"))
   }
   
   try {
@@ -79,7 +79,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
     }
     
     if (!data.candidates || !data.candidates[0]?.content?.parts[0]?.text) {
-      throw new Error('I'm speechless... literally. (Invalid response) 🍭')
+      throw new Error("I'm speechless... literally. (Invalid response) 🍭")
     }
     
     const aiResponse = data.candidates[0].content.parts[0].text.trim()

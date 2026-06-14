@@ -2,7 +2,7 @@ process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '1'
 import './config.js'
 
 import dotenv from 'dotenv'
-import { existsSync, readFileSync, readdirSync, unlinkSync, watch } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, watch } from 'fs'
 import { createRequire } from 'module'
 import path, { join } from 'path'
 import { platform } from 'process'
@@ -37,15 +37,18 @@ import { format } from 'util'
 import yargs from 'yargs'
 import { makeWASocket, protoType, serialize } from './lib/simple.js'
 
-import pkg from '@whiskeysockets/baileys'
+import makeWASocketPackage, * as baileys from '@whiskeysockets/baileys'
+const pkg = { ...baileys, default: makeWASocketPackage }
 const {
   DisconnectReason,
+  Browsers,
+  fetchLatestBaileysVersion,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   jidNormalizedUser,
-  PHONENUMBER_MCC,
   proto,
-  delay
+  delay,
+  useMultiFileAuthState
 } = pkg
 
 const makeWASocketDefault = pkg.default || pkg
@@ -65,13 +68,35 @@ const globalDB = new MongoDB(MONGODB_URI)
 global.db = globalDB
 
 global.loadDatabase = async function loadDatabase() {
-  await global.db.read()
-  global.db.data = {
-    users: {},
-    chats: {},
-    settings: {},
-    stats: {},
-    ...(global.db.data || {})
+  try {
+    await global.db.read()
+    global.db.data = {
+      users: {},
+      chats: {},
+      settings: {},
+      stats: {},
+      ...(global.db.data || {})
+    }
+  } catch (error) {
+    console.warn(
+      chalk.yellow(`MongoDB data store unavailable; using in-memory data store: ${error.message}`)
+    )
+    global.db = {
+      data: {
+        users: {},
+        chats: {},
+        settings: {},
+        stats: {}
+      },
+      async read() {
+        return this.data
+      },
+      async write(data = this.data) {
+        this.data = data
+        return true
+      },
+      async close() {}
+    }
   }
 }
 
@@ -116,15 +141,42 @@ global.prefix = new RegExp(
 global.opts['db'] = process.env.MONGODB_URI
 
 
-const { state, saveCreds, closeConnection } = await useMongoDBAuthState(MONGODB_URI, DB_NAME)
+let authState
+try {
+  authState = await useMongoDBAuthState(MONGODB_URI, DB_NAME)
+} catch (error) {
+  console.warn(
+    chalk.yellow(`MongoDB auth store unavailable; using local session files: ${error.message}`)
+  )
+  mkdirSync(join(__dirname, 'session'), { recursive: true })
+  authState = await useMultiFileAuthState(join(__dirname, 'session'))
+}
+
+const {
+  state,
+  saveCreds,
+  closeConnection = async () => {}
+} = authState
+
+const { version: waWebVersion } = await fetchLatestBaileysVersion().catch(async error => {
+  console.warn(
+    chalk.yellow(`Unable to fetch latest Baileys version; trying WhatsApp Web version: ${error.message}`)
+  )
+  return fetchLatestWaWebVersion().catch(waError => {
+    console.warn(
+      chalk.yellow(`Unable to fetch latest WhatsApp Web version; using bundled fallback: ${waError.message}`)
+    )
+    return { version: [2, 3000, 1017531287] }
+  })
+})
 
 const connectionOptions = {
   logger: Pino({
     level: 'fatal',
   }),
   printQRInTerminal: false,
-  version: [2, 3000, 1017531287],
-  browser: ["Ubuntu", "Chrome", "20.0.04"],
+  version: waWebVersion,
+  browser: Browsers.ubuntu('Chrome'),
   auth: {
     creds: state.creds,
     keys: makeCacheableSignalKeyStore(
@@ -183,21 +235,74 @@ const connectionOptions = {
 global.conn = makeWASocket(connectionOptions)
 conn.isInit = false
 
+let pairingPhoneNumber = null
+let pairingAttempts = 0
+let pairingRequestInFlight = false
+let pairingRequestCompleted = false
+
+async function requestPairingCode(trigger = 'connection.update') {
+  if (
+    pairingRequestCompleted ||
+    pairingRequestInFlight ||
+    conn.authState.creds.registered ||
+    !pairingPhoneNumber
+  ) {
+    return false
+  }
+
+  pairingRequestInFlight = true
+  pairingAttempts += 1
+
+  try {
+    let code = await conn.requestPairingCode(pairingPhoneNumber)
+    code = code?.match(/.{1,4}/g)?.join('-') || code
+
+    global.pairingCode = code
+    pairingRequestCompleted = true
+
+    const pairingCodeFormatted = chalk.bold.greenBright('Your Pairing Code:') + ' ' + chalk.bgGreenBright(chalk.black(code))
+    console.log(pairingCodeFormatted)
+
+    if (process.send) {
+      process.send({
+        type: 'pairing-code',
+        code: code,
+        error: false
+      })
+    }
+    return true
+  } catch (error) {
+    console.log(
+      chalk.bgBlack(chalk.redBright(`Failed to generate pairing code after ${trigger}:`)),
+      error
+    )
+
+    if (pairingAttempts >= 6 && process.send) {
+      process.send({
+        type: 'pairing-code',
+        code: 'ERROR: Failed to generate pairing code',
+        error: true
+      })
+    }
+    return false
+  } finally {
+    pairingRequestInFlight = false
+  }
+}
+
 if (!conn.authState.creds.registered) {
-  let phoneNumber
-  
   if (phoneNumberFromEnv) {
-    phoneNumber = phoneNumberFromEnv.replace(/[^0-9]/g, '')
-    
-    if (!phoneNumber || phoneNumber.length < 8) {
+    pairingPhoneNumber = phoneNumberFromEnv.replace(/[^0-9]/g, '')
+
+    if (!/^\d{8,15}$/.test(pairingPhoneNumber)) {
       console.log(
-        chalk.bgBlack(chalk.redBright("Invalid phone number format. Please include country code (Example: 62xxx)"))
+        chalk.bgBlack(chalk.redBright("Invalid phone number format. Use E.164 format without + (Example: 2348100835767)"))
       )
       if (process.send) {
-        process.send({ 
-          type: 'pairing-code', 
-          code: 'ERROR: Invalid phone number format', 
-          error: true 
+        process.send({
+          type: 'pairing-code',
+          code: 'ERROR: Invalid phone number format',
+          error: true
         })
       }
       process.exit(0)
@@ -205,46 +310,25 @@ if (!conn.authState.creds.registered) {
   } else {
     console.log(chalk.red("No phone number provided. Please set the PHONE_NUMBER environment variable."))
     if (process.send) {
-      process.send({ 
-        type: 'pairing-code', 
-        code: 'ERROR: No phone number provided', 
-        error: true 
+      process.send({
+        type: 'pairing-code',
+        code: 'ERROR: No phone number provided',
+        error: true
       })
     }
     process.exit(0)
   }
-
-  setTimeout(async () => {
-    try {
-      let code = await conn.requestPairingCode(phoneNumber, "COTANA11")
-      code = code?.match(/.{1,4}/g)?.join('-') || code
-      
-      global.pairingCode = code
-      
-      const pairingCodeFormatted = chalk.bold.greenBright('Your Pairing Code:') + ' ' + chalk.bgGreenBright(chalk.black(code))
-      console.log(pairingCodeFormatted)
-      
-      if (process.send) {
-        process.send({ 
-          type: 'pairing-code', 
-          code: code, 
-          error: false 
-        })
-      }
-    } catch (error) {
-      console.log(chalk.bgBlack(chalk.redBright("Failed to generate pairing code:")), error)
-      if (process.send) {
-        process.send({ 
-          type: 'pairing-code', 
-          code: 'ERROR: Failed to generate pairing code', 
-          error: true 
-        })
-      }
-    }
-  }, 3000)
 }
 
 conn.logger.info('\nWaiting For Login\n')
+
+if (!conn.authState.creds.registered && pairingPhoneNumber) {
+  setTimeout(() => {
+    requestPairingCode('socket-ready').catch(error => {
+      console.error('Error requesting initial pairing code:', error)
+    })
+  }, 3000)
+}
 
 if (!opts['test']) {
   if (global.db) {
@@ -257,10 +341,18 @@ if (!opts['test']) {
 if (opts['server']) (await import('./server.js')).default(global.conn, PORT)
 
 async function connectionUpdate(update) {
-  const { connection, lastDisconnect, isNewLogin } = update
+  const { connection, lastDisconnect, isNewLogin, qr } = update
   global.stopped = connection
 
   if (isNewLogin) conn.isInit = true
+
+  if (
+    !conn.authState.creds.registered &&
+    pairingPhoneNumber &&
+    (connection === 'connecting' || qr)
+  ) {
+    await requestPairingCode(qr ? 'qr' : 'connecting')
+  }
 
   const code =
     lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode
@@ -323,6 +415,7 @@ async function connectionUpdate(update) {
   }
 
   if (connection === 'close') {
+    pairingRequestInFlight = false
     if (process.send) {
       process.send({ 
         type: 'connection-status', 
@@ -469,7 +562,7 @@ async function generateStatsData() {
   }
 }
 
-const pluginFolder = global.__dirname(join(__dirname, './plugins'))
+const pluginFolder = join(__dirname, 'plugins')
 const pluginFilter = filename => /\.js$/.test(filename)
 global.plugins = {}
 async function filesInit() {

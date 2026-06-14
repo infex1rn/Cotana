@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",
-    "@whiskeysockets/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "awesome-phonenumber": "^3.4.0",
     "axios": "^1.4.0",
     "body-parser": "^2.2.0",
