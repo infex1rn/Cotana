@@ -2,7 +2,7 @@ process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '1'
 import './config.js'
 
 import dotenv from 'dotenv'
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, watch } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, watch } from 'fs'
 import { createRequire } from 'module'
 import path, { join } from 'path'
 import { platform } from 'process'
@@ -101,12 +101,10 @@ global.loadDatabase = async function loadDatabase() {
 }
 
 setInterval(async () => {
-  if (global.db.data) await global.db.write(global.db.data)
+  await writeDatabaseIfConnected()
 }, 60 * 1000)
 
 await global.loadDatabase()
-
-const phoneNumberFromEnv = process.env.PHONE_NUMBER
 
 const MAIN_LOGGER = pino({ timestamp: () => `,"time":"${new Date().toJSON()}"` })
 
@@ -119,6 +117,15 @@ const { CONNECTING } = ws
 const { chain } = lodash
 const PORT = process.env.PORT || process.env.SERVER_PORT || 3000
 
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs)
+    })
+  ])
+}
+
 protoType()
 serialize()
 
@@ -129,6 +136,7 @@ global.timestamp = {
 }
 
 const __dirname = global.__dirname(import.meta.url)
+const SESSION_DIR = join(__dirname, 'session')
 global.opts = new Object(yargs(process.argv.slice(2)).exitProcess(false).parse())
 global.prefix = new RegExp(
   '^[' +
@@ -140,16 +148,40 @@ global.prefix = new RegExp(
 )
 global.opts['db'] = process.env.MONGODB_URI
 
+function isPartialUnregisteredSession(creds) {
+  return Boolean(
+    creds &&
+      !creds.registered &&
+      (creds.me || creds.account || creds.pairingCode || creds.pairingEphemeralKeyPair)
+  )
+}
+
+function quarantineLocalSession(reason = 'partial') {
+  if (!existsSync(SESSION_DIR)) return false
+
+  const backupDir = join(__dirname, `session-${reason}-${Date.now()}`)
+  renameSync(SESSION_DIR, backupDir)
+  console.warn(chalk.yellow(`Moved stale local auth session to ${backupDir}`))
+  return true
+}
 
 let authState
+let usingLocalAuth = false
 try {
   authState = await useMongoDBAuthState(MONGODB_URI, DB_NAME)
 } catch (error) {
   console.warn(
     chalk.yellow(`MongoDB auth store unavailable; using local session files: ${error.message}`)
   )
-  mkdirSync(join(__dirname, 'session'), { recursive: true })
-  authState = await useMultiFileAuthState(join(__dirname, 'session'))
+  usingLocalAuth = true
+  mkdirSync(SESSION_DIR, { recursive: true })
+  authState = await useMultiFileAuthState(SESSION_DIR)
+  if (isPartialUnregisteredSession(authState.state.creds)) {
+    await authState.closeConnection?.()
+    quarantineLocalSession('partial')
+    mkdirSync(SESSION_DIR, { recursive: true })
+    authState = await useMultiFileAuthState(SESSION_DIR)
+  }
 }
 
 const {
@@ -158,15 +190,23 @@ const {
   closeConnection = async () => {}
 } = authState
 
-const { version: waWebVersion } = await fetchLatestBaileysVersion().catch(async error => {
+const { version: waWebVersion } = await withTimeout(
+  fetchLatestBaileysVersion(),
+  10000,
+  'Timed out fetching latest Baileys version'
+).catch(async error => {
   console.warn(
     chalk.yellow(`Unable to fetch latest Baileys version; trying WhatsApp Web version: ${error.message}`)
   )
-  return fetchLatestWaWebVersion().catch(waError => {
+  return withTimeout(
+    fetchLatestWaWebVersion(),
+    10000,
+    'Timed out fetching latest WhatsApp Web version'
+  ).catch(waError => {
     console.warn(
       chalk.yellow(`Unable to fetch latest WhatsApp Web version; using bundled fallback: ${waError.message}`)
     )
-    return { version: [2, 3000, 1017531287] }
+    return { version: [2, 3000, 1015901307] }
   })
 })
 
@@ -176,7 +216,7 @@ const connectionOptions = {
   }),
   printQRInTerminal: false,
   version: waWebVersion,
-  browser: Browsers.ubuntu('Chrome'),
+  browser: ['Ubuntu', 'Chrome', '20.0.04'],
   auth: {
     creds: state.creds,
     keys: makeCacheableSignalKeyStore(
@@ -229,24 +269,55 @@ const connectionOptions = {
   },
   msgRetryCounterCache,
   defaultQueryTimeoutMs: undefined,
+  connectTimeoutMs: 60000,
   syncFullHistory: false,
 }
 
 global.conn = makeWASocket(connectionOptions)
 conn.isInit = false
 
-let pairingPhoneNumber = null
 let pairingAttempts = 0
 let pairingRequestInFlight = false
-let pairingRequestCompleted = false
+let pendingPairingRequest = null
+let isWhatsAppConnected = false
 
-async function requestPairingCode(trigger = 'connection.update') {
-  if (
-    pairingRequestCompleted ||
-    pairingRequestInFlight ||
-    conn.authState.creds.registered ||
-    !pairingPhoneNumber
-  ) {
+async function writeDatabaseIfConnected(data = global.db?.data) {
+  if (!isWhatsAppConnected || !global.db?.data) return false
+
+  try {
+    await global.db.write(data)
+    return true
+  } catch (error) {
+    console.warn(chalk.yellow(`Database write skipped: ${error.message}`))
+    return false
+  }
+}
+
+function cleanPairingPhoneNumber(phoneNumber) {
+  return phoneNumber?.replace(/[^0-9]/g, '')
+}
+
+function formatPairingCode(code) {
+  return code?.replace(/[^0-9A-Za-z]/g, '')?.match(/.{1,4}/g)?.join('-') || code
+}
+
+async function saveCredsWhenValid() {
+  const creds = global.conn?.authState?.creds
+  if (!isWhatsAppConnected && !creds?.registered) return
+  await saveCreds()
+}
+
+async function fulfillPendingPairingCode(trigger = 'connection.update') {
+  if (!pendingPairingRequest || pairingRequestInFlight) return false
+
+  const { phoneNumber, resolve, reject, timeout } = pendingPairingRequest
+  const activeConn = global.conn
+
+  if (!activeConn || activeConn.authState.creds.registered) {
+    clearTimeout(timeout)
+    pendingPairingRequest = null
+    pairingRequestInFlight = false
+    reject(new Error('Already registered'))
     return false
   }
 
@@ -254,86 +325,67 @@ async function requestPairingCode(trigger = 'connection.update') {
   pairingAttempts += 1
 
   try {
-    let code = await conn.requestPairingCode(pairingPhoneNumber)
-    code = code?.match(/.{1,4}/g)?.join('-') || code
+    const code = await activeConn.requestPairingCode(phoneNumber)
+    const formattedCode = formatPairingCode(code)
 
-    global.pairingCode = code
-    pairingRequestCompleted = true
+    global.pairingCode = formattedCode
+    console.log(chalk.bold.greenBright(`Your Pairing Code (${trigger}):`) + ' ' + chalk.bgGreenBright(chalk.black(formattedCode)))
 
-    const pairingCodeFormatted = chalk.bold.greenBright('Your Pairing Code:') + ' ' + chalk.bgGreenBright(chalk.black(code))
-    console.log(pairingCodeFormatted)
-
-    if (process.send) {
-      process.send({
-        type: 'pairing-code',
-        code: code,
-        error: false
-      })
-    }
+    clearTimeout(timeout)
+    pendingPairingRequest = null
+    resolve(code)
     return true
   } catch (error) {
+    clearTimeout(timeout)
+    pendingPairingRequest = null
     console.log(
       chalk.bgBlack(chalk.redBright(`Failed to generate pairing code after ${trigger}:`)),
       error
     )
-
-    if (pairingAttempts >= 6 && process.send) {
-      process.send({
-        type: 'pairing-code',
-        code: 'ERROR: Failed to generate pairing code',
-        error: true
-      })
-    }
+    reject(error)
     return false
   } finally {
     pairingRequestInFlight = false
   }
 }
 
-if (!conn.authState.creds.registered) {
-  if (phoneNumberFromEnv) {
-    pairingPhoneNumber = phoneNumberFromEnv.replace(/[^0-9]/g, '')
+global.requestPairingCode = async function requestPairingCode(phoneNumber) {
+  const cleanNumber = cleanPairingPhoneNumber(phoneNumber)
 
-    if (!/^\d{8,15}$/.test(pairingPhoneNumber)) {
-      console.log(
-        chalk.bgBlack(chalk.redBright("Invalid phone number format. Use E.164 format without + (Example: 2348100835767)"))
-      )
-      if (process.send) {
-        process.send({
-          type: 'pairing-code',
-          code: 'ERROR: Invalid phone number format',
-          error: true
-        })
-      }
-      process.exit(0)
+  if (!cleanNumber || cleanNumber.length < 8) throw new Error('Invalid phone number')
+  if (global.conn.authState.creds.registered) throw new Error('Already registered')
+  if (pendingPairingRequest || pairingRequestInFlight) throw new Error('Pairing request already in progress')
+
+  return new Promise(async (resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingPairingRequest = null
+      pairingRequestInFlight = false
+      reject(new Error('Timed out waiting for socket pairing state'))
+    }, 60000)
+
+    pendingPairingRequest = {
+      phoneNumber: cleanNumber,
+      resolve,
+      reject,
+      timeout
     }
-  } else {
-    console.log(chalk.red("No phone number provided. Please set the PHONE_NUMBER environment variable."))
-    if (process.send) {
-      process.send({
-        type: 'pairing-code',
-        code: 'ERROR: No phone number provided',
-        error: true
-      })
+
+    try {
+      if (global.reloadHandler) await global.reloadHandler(true)
+    } catch (error) {
+      clearTimeout(timeout)
+      pendingPairingRequest = null
+      reject(error)
     }
-    process.exit(0)
-  }
+  })
 }
 
 conn.logger.info('\nWaiting For Login\n')
 
-if (!conn.authState.creds.registered && pairingPhoneNumber) {
-  setTimeout(() => {
-    requestPairingCode('socket-ready').catch(error => {
-      console.error('Error requesting initial pairing code:', error)
-    })
-  }, 3000)
-}
-
 if (!opts['test']) {
   if (global.db) {
     setInterval(async () => {
-      if (global.db.data) await global.db.write(global.db.data)
+      await writeDatabaseIfConnected()
     }, 30 * 1000)
   }
 }
@@ -342,22 +394,35 @@ if (opts['server']) (await import('./server.js')).default(global.conn, PORT)
 
 async function connectionUpdate(update) {
   const { connection, lastDisconnect, isNewLogin, qr } = update
+  const activeConn = this || global.conn
+  const isRegistered = activeConn?.authState?.creds?.registered
   global.stopped = connection
 
   if (isNewLogin) conn.isInit = true
 
   if (
-    !conn.authState.creds.registered &&
-    pairingPhoneNumber &&
-    (connection === 'connecting' || qr)
+    pendingPairingRequest &&
+    !isRegistered &&
+    qr
   ) {
-    await requestPairingCode(qr ? 'qr' : 'connecting')
+    await fulfillPendingPairingCode('qr')
   }
 
   const code =
     lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode
 
-  if (code && code !== DisconnectReason.loggedOut && conn?.ws.socket == null) {
+  if (!isRegistered && code === 428) {
+    if (process.send) {
+      process.send({
+        type: 'connection-status',
+        connected: false
+      })
+    }
+    conn.logger.error(chalk.yellow('\nConnection closed while waiting for requested pairing'))
+    return
+  }
+
+  if (code && code !== DisconnectReason.loggedOut && activeConn?.ws.socket == null) {
     try {
       conn.logger.info(await global.reloadHandler(true))
     } catch (error) {
@@ -365,13 +430,13 @@ async function connectionUpdate(update) {
     }
   }
 
-  if (code && (code === DisconnectReason.restartRequired || code === 428)) {
+  if (code && code === DisconnectReason.restartRequired) {
     conn.logger.info(chalk.yellow('\n🚩 Restart Required... Preparing for restart'))
     
     try {
       if (global.db.data) {
         conn.logger.info(chalk.blue('Saving database before restart...'))
-        await global.db.write(global.db.data)
+        await writeDatabaseIfConnected()
         conn.logger.info(chalk.green('Database saved successfully'))
       }
     } catch (error) {
@@ -389,6 +454,9 @@ async function connectionUpdate(update) {
   if (global.db.data == null) loadDatabase()
 
   if (connection === 'open') {
+    isWhatsAppConnected = true
+    await saveCredsWhenValid()
+
     if (process.send) {
       process.send({ 
         type: 'connection-status', 
@@ -415,6 +483,7 @@ async function connectionUpdate(update) {
   }
 
   if (connection === 'close') {
+    isWhatsAppConnected = false
     pairingRequestInFlight = false
     if (process.send) {
       process.send({ 
@@ -427,26 +496,33 @@ async function connectionUpdate(update) {
 }
 
 conn.ev.on('messaging-history.set', ({ messages }) => {
+  if (!isWhatsAppConnected) return
   if (messages && messages.length > 0) {
     mongoStore.saveMessages({ messages, type: 'append' }, DB_NAME)
   }
 })
 conn.ev.on('contacts.update', async (contacts) => {
+  if (!isWhatsAppConnected) return
   for (const contact of contacts) await mongoStore.saveContact(contact, DB_NAME)
 })
 conn.ev.on('contacts.upsert', async (contacts) => {
+  if (!isWhatsAppConnected) return
   for (const contact of contacts) await mongoStore.saveContact(contact, DB_NAME)
 })
 conn.ev.on('messages.upsert', ({ messages }) => {
+  if (!isWhatsAppConnected) return
   mongoStore.saveMessages({ messages, type: 'upsert' }, DB_NAME)
 })
 conn.ev.on('messages.update', async (messageUpdates) => {
+  if (!isWhatsAppConnected) return
   mongoStore.saveMessages({ messages: messageUpdates, type: 'update' }, DB_NAME)
 })
 conn.ev.on('message-receipt.update', async (messageReceipts) => {
+  if (!isWhatsAppConnected) return
   mongoStore.saveReceipts(messageReceipts, DB_NAME)
 })
 conn.ev.on('groups.update', async ([event]) => {
+  if (!isWhatsAppConnected) return
   if (event.id) {
     const metadata = await conn.groupMetadata(event.id)
     if (metadata) {
@@ -456,6 +532,7 @@ conn.ev.on('groups.update', async ([event]) => {
   }
 })
 conn.ev.on('group-participants.update', async (event) => {
+  if (!isWhatsAppConnected) return
   if (event.id) {
     const metadata = await conn.groupMetadata(event.id)
     if (metadata) {
@@ -482,55 +559,76 @@ global.reloadHandler = async function (restatConn) {
   }
   if (restatConn) {
     const oldChats = global.conn.chats
+    const oldConn = global.conn
     try {
-      global.conn.ws.close()
+      oldConn.ws.close()
     } catch {}
-    conn.ev.removeAllListeners()
+    oldConn.ev.removeAllListeners()
     global.conn = makeWASocket(connectionOptions, {
       chats: oldChats,
     })
     isInit = true
   }
+  const activeConn = global.conn
   if (!isInit) {
-    conn.ev.off('messages.upsert', conn.handler)
-    conn.ev.off('messages.update', conn.pollUpdate)
-    conn.ev.off('group-participants.update', conn.participantsUpdate)
-    conn.ev.off('groups.update', conn.groupsUpdate)
-    conn.ev.off('message.delete', conn.onDelete)
-    conn.ev.off('presence.update', conn.presenceUpdate)
-    conn.ev.off('connection.update', conn.connectionUpdate)
-    conn.ev.off('creds.update', conn.credsUpdate)
+    activeConn.ev.off('messages.upsert', activeConn.handler)
+    activeConn.ev.off('messages.update', activeConn.pollUpdate)
+    activeConn.ev.off('group-participants.update', activeConn.participantsUpdate)
+    activeConn.ev.off('groups.update', activeConn.groupsUpdate)
+    activeConn.ev.off('message.delete', activeConn.onDelete)
+    activeConn.ev.off('presence.update', activeConn.presenceUpdate)
+    activeConn.ev.off('connection.update', activeConn.connectionUpdate)
+    activeConn.ev.off('creds.update', activeConn.credsUpdate)
   }
 
-  conn.welcome = ` Hello @user!\n\n🎉 *WELCOME* to the group @group!\n\n📜 Please read the *DESCRIPTION* @desc.`
-  conn.bye = `👋GOODBYE @user \n\nSee you later!`
-  conn.spromote = `*@user* has been promoted to an admin!`
-  conn.sdemote = `*@user* is no longer an admin.`
+  activeConn.welcome = ` Hello @user!\n\n🎉 *WELCOME* to the group @group!\n\n📜 Please read the *DESCRIPTION* @desc.`
+  activeConn.bye = `👋GOODBYE @user \n\nSee you later!`
+  activeConn.spromote = `*@user* has been promoted to an admin!`
+  activeConn.sdemote = `*@user* is no longer an admin.`
 
-  conn.handler = handler.handler.bind(global.conn)
-  conn.pollUpdate = handler.pollUpdate.bind(global.conn)
-  conn.participantsUpdate = handler.participantsUpdate.bind(global.conn)
-  conn.groupsUpdate = handler.groupsUpdate.bind(global.conn)
-  conn.onDelete = handler.deleteUpdate.bind(global.conn)
-  conn.presenceUpdate = handler.presenceUpdate.bind(global.conn)
-  conn.connectionUpdate = connectionUpdate.bind(global.conn)
-  conn.credsUpdate = saveCreds.bind(global.conn, true)
+  activeConn.handler = handler.handler.bind(activeConn)
+  activeConn.pollUpdate = handler.pollUpdate.bind(activeConn)
+  activeConn.participantsUpdate = handler.participantsUpdate.bind(activeConn)
+  activeConn.groupsUpdate = handler.groupsUpdate.bind(activeConn)
+  activeConn.onDelete = handler.deleteUpdate.bind(activeConn)
+  activeConn.presenceUpdate = handler.presenceUpdate.bind(activeConn)
+  activeConn.connectionUpdate = connectionUpdate.bind(activeConn)
+  activeConn.credsUpdate = saveCredsWhenValid.bind(activeConn)
 
-  conn.ev.on('messages.upsert', conn.handler)
-  conn.ev.on('messages.update', conn.pollUpdate)
-  conn.ev.on('group-participants.update', conn.participantsUpdate)
-  conn.ev.on('groups.update', conn.groupsUpdate)
-  conn.ev.on('message.delete', conn.onDelete)
-  conn.ev.on('presence.update', conn.presenceUpdate)
-  conn.ev.on('connection.update', conn.connectionUpdate)
-  conn.ev.on('creds.update', conn.credsUpdate)
+  activeConn.ev.on('messages.upsert', activeConn.handler)
+  activeConn.ev.on('messages.update', activeConn.pollUpdate)
+  activeConn.ev.on('group-participants.update', activeConn.participantsUpdate)
+  activeConn.ev.on('groups.update', activeConn.groupsUpdate)
+  activeConn.ev.on('message.delete', activeConn.onDelete)
+  activeConn.ev.on('presence.update', activeConn.presenceUpdate)
+  activeConn.ev.on('connection.update', activeConn.connectionUpdate)
+  activeConn.ev.on('creds.update', activeConn.credsUpdate)
   isInit = false
   return true
 }
 
 if (process.on) {
   process.on('message', async (data) => {
-    if (typeof data === 'object' && data.type === 'request-stats') {
+    if (typeof data === 'object' && data.type === 'request-pairing-code') {
+      try {
+        const code = await global.requestPairingCode(data.phoneNumber)
+        if (process.send) {
+          process.send({
+            type: 'pairing-code',
+            code,
+            error: false
+          })
+        }
+      } catch (error) {
+        if (process.send) {
+          process.send({
+            type: 'pairing-code',
+            code: error.message || 'Failed to generate pairing code',
+            error: true
+          })
+        }
+      }
+    } else if (typeof data === 'object' && data.type === 'request-stats') {
       try {
         const stats = await generateStatsData()
         if (process.send) {

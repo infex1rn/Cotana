@@ -38,26 +38,11 @@ Type *${usedPrefix}list* to see everything I can do... if you think you can hand
 ${readMore}
 `
 
-    const buttons = [
-      ['🔍 COMMANDS', `${usedPrefix}list`],
-      ['⚡ SPEED', `${usedPrefix}ping`]
-    ]
-
-    const urls = [
-      ['💻 GitHub', 'https://github.com/cotana322'],
-      ['🎥 YouTube', 'https://www.youtube.com/@Aslicotana'],
-      ['💬 Telegram', 'https://t.me/NAKLI_cotana']
-    ]
-
-    await conn.sendButton(
-      m.chat, 
-      formatResponse(str.trim()),
-      `© ${persona.organization} | 2025`, 
-      logo, 
-      buttons, 
-      null, 
-      urls,
-      m 
+    await sendMenuMessage(
+      conn,
+      m,
+      formatResponse(`${str.trim()}\n\n${usedPrefix}list - Commands\n${usedPrefix}ping - Speed\n\n© ${persona.organization} | 2025`),
+      logo
     )
     
     m.react('😈')
@@ -73,6 +58,15 @@ handler.command = ['menu', 'help', 'h']
 handler.desc = 'Display the bot\'s main menu with commands, user info and bot status'
 
 export default handler
+
+async function sendMenuMessage(conn, m, text, logo) {
+  try {
+    await conn.sendMessage(m.chat, { image: { url: logo }, caption: text }, { quoted: m })
+  } catch (error) {
+    console.error('Menu media send failed, falling back to text:', error)
+    await conn.sendMessage(m.chat, { text }, { quoted: m })
+  }
+}
 
 function clockString(ms) {
   let h = isNaN(ms) ? '--' : Math.floor(ms / 3600000)

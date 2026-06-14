@@ -1,310 +1,747 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COTANA-AI Status</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #121212;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            color: #fff;
-        }
-        .container {
-            width: 90%;
-            max-width: 600px;
-            background: rgba(30, 30, 30, 0.7);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .status {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .pairing-code {
-            font-size: 28px;
-            font-weight: bold;
-            background-color: rgba(50, 50, 50, 0.8);
-            color: #4CAF50;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 8px;
-            text-align: center;
-            letter-spacing: 2px;
-            border: 1px solid rgba(76, 175, 80, 0.3);
-        }
-        .instructions {
-            text-align: left;
-            margin-top: 20px;
-            padding: 15px;
-            background-color: rgba(40, 40, 40, 0.5);
-            border-radius: 8px;
-            line-height: 1.6;
-        }
-        .instructions h3 {
-            margin-top: 0;
-            color: #4CAF50;
-        }
-        .hidden {
-            display: none;
-        }
-        .success-message {
-            color: #4CAF50;
-            font-weight: bold;
-            font-size: 20px;
-            margin-top: 20px;
-            text-align: center;
-        }
-        #loading-container {
-            text-align: center;
-        }
-        .loading-spinner {
-            width: 40px;
-            height: 40px;
-            margin: 20px auto;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-radius: 50%;
-            border-top: 4px solid #4CAF50;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        /* Dashboard styles */
-        .dashboard {
-            background-color: rgba(40, 40, 40, 0.7);
-            border-radius: 8px;
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid rgba(76, 175, 80, 0.3);
-        }
-        .dashboard-title {
-            text-align: center;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            color: #4CAF50;
-        }
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        .stat-item {
-            background-color: rgba(50, 50, 50, 0.5);
-            padding: 10px;
-            border-radius: 6px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .stat-label {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .stat-value {
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        .divider {
-            height: 1px;
-            background-color: rgba(255, 255, 255, 0.1);
-            margin: 15px 0;
-        }
-        .top-plugins {
-            margin-top: 15px;
-        }
-        .plugin-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COTANA Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f14;
+      --panel: #111821;
+      --panel-strong: #162231;
+      --line: #263342;
+      --line-soft: rgba(255, 255, 255, 0.08);
+      --text: #edf4f8;
+      --muted: #9fb0bd;
+      --green: #2fd17c;
+      --green-dark: #0d7a46;
+      --cyan: #47c4e5;
+      --amber: #f0b84f;
+      --red: #ff6b6b;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        linear-gradient(135deg, rgba(47, 209, 124, 0.10), transparent 28%),
+        linear-gradient(315deg, rgba(71, 196, 229, 0.10), transparent 30%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 0 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 50px;
+      height: 50px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #0f151c;
+      object-fit: cover;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(17, 24, 33, 0.84);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--amber);
+      box-shadow: 0 0 18px rgba(240, 184, 79, 0.45);
+    }
+
+    .status-pill.connected .dot {
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(47, 209, 124, 0.48);
+    }
+
+    .status-pill.error .dot {
+      background: var(--red);
+      box-shadow: 0 0 18px rgba(255, 107, 107, 0.45);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(17, 24, 33, 0.88);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero-panel {
+      min-height: 620px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(22, 34, 49, 0.58);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .panel-subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .panel-body {
+      padding: 24px;
+    }
+
+    .pair-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .phone-input {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0c1219;
+      color: var(--text);
+      outline: none;
+      padding: 0 14px;
+      font-size: 16px;
+    }
+
+    .phone-input:focus {
+      border-color: rgba(71, 196, 229, 0.75);
+      box-shadow: 0 0 0 3px rgba(71, 196, 229, 0.12);
+    }
+
+    .primary-btn,
+    .ghost-btn {
+      min-height: 48px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 140ms ease, opacity 140ms ease, border-color 140ms ease;
+    }
+
+    .primary-btn {
+      min-width: 170px;
+      align-self: end;
+      padding: 0 18px;
+      background: var(--green);
+      color: #05110a;
+    }
+
+    .ghost-btn {
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      background: #0c1219;
+      color: var(--text);
+    }
+
+    .primary-btn:hover,
+    .ghost-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .primary-btn:disabled {
+      cursor: wait;
+      opacity: 0.62;
+      transform: none;
+    }
+
+    .result-line {
+      min-height: 24px;
+      margin-top: 12px;
+      color: var(--amber);
+      font-size: 14px;
+    }
+
+    .code-stage {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0c1219;
+      padding: 18px;
+    }
+
+    .code-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    .code-box {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .pairing-code {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      border: 1px solid rgba(47, 209, 124, 0.35);
+      background: rgba(47, 209, 124, 0.08);
+      color: var(--green);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: 3px;
+      overflow-wrap: anywhere;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      margin: 24px 0 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .steps li {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: center;
+      min-height: 46px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .steps li::before {
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: rgba(71, 196, 229, 0.12);
+      color: var(--cyan);
+      font-weight: 800;
+    }
+
+    .side {
+      display: grid;
+      gap: 18px;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-height: 84px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: #0c1219;
+      padding: 14px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1.1;
+      overflow-wrap: anywhere;
+    }
+
+    .metric.accent strong {
+      color: var(--green);
+    }
+
+    .success-message {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--green);
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .plugin-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .plugin-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 36px;
+      align-items: center;
+      border-bottom: 1px solid var(--line-soft);
+      color: var(--muted);
+    }
+
+    .plugin-item:last-child {
+      border-bottom: 0;
+    }
+
+    .stat-value {
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    .notice {
+      border-left: 3px solid var(--cyan);
+      background: rgba(71, 196, 229, 0.08);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 860px) {
+      .shell {
+        width: min(100% - 20px, 680px);
+        padding: 18px 0;
+      }
+
+      .topbar,
+      .panel-head,
+      .success-message {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-panel {
+        min-height: auto;
+      }
+
+      .pair-grid,
+      .code-box {
+        grid-template-columns: 1fr;
+      }
+
+      .primary-btn,
+      .ghost-btn {
+        width: 100%;
+      }
+
+      .status-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .pairing-code {
+        font-size: 24px;
+        letter-spacing: 2px;
+      }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="status">COTANA AI Status</div>
-        
-        <div id="loading-container">
-            <p>Starting COTANA AI... Please wait.</p>
-            <div class="loading-spinner"></div>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-mark" src="/Cotana-logo.png" alt="COTANA">
+        <div>
+          <h1>COTANA Control</h1>
+          <p>WhatsApp pairing and runtime status</p>
         </div>
-        
-        <div id="pairing-container" class="hidden">
-            <p>Use this pairing code to connect WhatsApp:</p>
-            <div id="pairing-code" class="pairing-code">Loading pairing code...</div>
-            
-            <div class="instructions">
-                <h3>Connection Instructions:</h3>
-                <ol>
-                    <li>Open WhatsApp on your phone</li>
-                    <li>Tap Menu or Settings and select Linked Devices</li>
-                    <li>Tap on "Link a Device"</li>
-                    <li>When prompted for a QR code, tap "Link with phone number instead"</li>
-                    <li>Enter the pairing code shown above</li>
-                </ol>
-            </div>
-        </div>
-        
-        <div id="success-container" class="hidden">
-            <div class="success-message">AI is now working!</div>
-            <p>Your WhatsApp AI is successfully connected and running.</p>
-            
-            <div class="dashboard">
-                <div class="dashboard-title">🤖 COTANA AI DASHBOARD 🤖</div>
-                
-                <div class="dashboard-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">👥 Users</span>
-                        <span id="user-count" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📝 Registered</span>
-                        <span id="registered-users" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">👥 Groups</span>
-                        <span id="group-count" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">💬 Private Chats</span>
-                        <span id="chat-count" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">🛡️ Banned Users</span>
-                        <span id="banned-users" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">🟢 Active Groups</span>
-                        <span id="active-groups" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">🔌 Plugins</span>
-                        <span id="plugin-count" class="stat-value">-</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">⏱️ Uptime</span>
-                        <span id="uptime" class="stat-value">-</span>
-                    </div>
-                </div>
-                
-                <div class="divider"></div>
-                
-                <div class="top-plugins">
-                    <div class="dashboard-title">🔝 Top Plugins</div>
-                    <div id="plugins-container">
-                        <div class="plugin-item">Loading plugin data...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+      </div>
+      <div id="connection-pill" class="status-pill">
+        <span class="dot"></span>
+        <span id="connection-text">Starting</span>
+      </div>
+    </header>
 
-    <script>
-        // Check for pairing status on page load and every 3 seconds
-        function checkStatus() {
-            fetch('/pairing-status')
-                .then(response => response.json())
-                .then(data => {
-                    // Hide loading once we have data
-                    document.getElementById('loading-container').classList.add('hidden');
-                    
-                    if (data.connected) {
-                        // If connected, show success message and dashboard
-                        document.getElementById('pairing-container').classList.add('hidden');
-                        document.getElementById('success-container').classList.remove('hidden');
-                        
-                        // If stats are available, update the dashboard
-                        if (data.stats) {
-                            updateDashboard(data.stats);
-                        } else {
-                            // If no stats yet, fetch them
-                            fetchAIStats();
-                        }
-                    } else if (data.pairingCode) {
-                        // If pairing code available but not connected, show the code
-                        document.getElementById('pairing-container').classList.remove('hidden');
-                        document.getElementById('pairing-code').textContent = data.pairingCode;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error checking status:', error);
-                });
-        }
-        
-        // Fetch AI statistics
-        function fetchAIStats() {
-            fetch('/bot-stats')
-                .then(response => response.json())
-                .then(data => {
-                    updateDashboard(data);
-                })
-                .catch(error => {
-                    console.error('Error fetching stats:', error);
-                });
-        }
-        
-        // Update dashboard with statistics
-        function updateDashboard(stats) {
-            // Update user statistics
-            document.getElementById('user-count').textContent = stats.users || '-';
-            document.getElementById('registered-users').textContent = stats.registeredUsers || '-';
-            document.getElementById('banned-users').textContent = stats.bannedUsers || '-';
-            
-            // Update chat statistics
-            document.getElementById('group-count').textContent = stats.groups || '-';
-            document.getElementById('chat-count').textContent = stats.privateChats || '-';
-            document.getElementById('active-groups').textContent = stats.activeGroups || '-';
-            
-            // Update system info
-            document.getElementById('plugin-count').textContent = stats.plugins || '-';
-            document.getElementById('uptime').textContent = stats.uptime || '-';
-            
-            // Update top plugins
-            if (stats.topPlugins && stats.topPlugins.length > 0) {
-                const pluginsContainer = document.getElementById('plugins-container');
-                pluginsContainer.innerHTML = '';
-                
-                stats.topPlugins.forEach(plugin => {
-                    const pluginItem = document.createElement('div');
-                    pluginItem.className = 'plugin-item';
-                    pluginItem.innerHTML = `
-                        <span>${plugin.name.replace('.js', '')}</span>
-                        <span class="stat-value">${plugin.total}</span>
-                    `;
-                    pluginsContainer.appendChild(pluginItem);
-                });
-            } else {
-                document.getElementById('plugins-container').innerHTML = 
-                    '<div class="plugin-item">No plugin usage data available yet</div>';
-            }
+    <section class="layout">
+      <div class="panel hero-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Pair Device</h2>
+            <p class="panel-subtitle">Enter the WhatsApp number with country code, then use the generated code in Linked Devices.</p>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div id="pairing-container">
+            <div class="pair-grid">
+              <div class="field">
+                <label for="phone-number">Phone number</label>
+                <input class="phone-input" type="tel" id="phone-number" placeholder="2348012345678" autocomplete="tel">
+              </div>
+              <button id="pair-button" class="primary-btn" type="button" onclick="requestPairing()">Request Code</button>
+            </div>
+            <div id="pairing-result" class="result-line"></div>
+
+            <div id="code-stage" class="code-stage hidden">
+              <div class="code-label">
+                <span>Enter this code exactly</span>
+                <span id="code-phone"></span>
+              </div>
+              <div class="code-box">
+                <div id="pairing-code" class="pairing-code">----</div>
+                <button id="copy-button" class="ghost-btn" type="button" onclick="copyPairingCode()">Copy</button>
+              </div>
+              <div id="display-code-note" class="result-line"></div>
+            </div>
+
+            <ol class="steps">
+              <li>Open WhatsApp on your phone.</li>
+              <li>Open Linked Devices and choose Link a Device.</li>
+              <li>Select Link with phone number instead.</li>
+              <li>Enter the pairing code shown here.</li>
+            </ol>
+          </div>
+
+          <div id="success-container" class="hidden">
+            <div class="success-message">
+              <span>Connected and running</span>
+              <button class="ghost-btn" type="button" onclick="fetchAIStats()">Refresh Stats</button>
+            </div>
+            <div class="notice">The bot is linked. Runtime stats update automatically while this page is open.</div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Live Status</h2>
+              <p class="panel-subtitle" id="status-detail">Waiting for bot status.</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="status-grid">
+              <div class="metric accent">
+                <span>Pairing</span>
+                <strong id="pairing-state">Idle</strong>
+              </div>
+              <div class="metric">
+                <span>Phone</span>
+                <strong id="pairing-phone">-</strong>
+              </div>
+              <div class="metric">
+                <span>Users</span>
+                <strong id="user-count">-</strong>
+              </div>
+              <div class="metric">
+                <span>Groups</span>
+                <strong id="group-count">-</strong>
+              </div>
+              <div class="metric">
+                <span>Private</span>
+                <strong id="chat-count">-</strong>
+              </div>
+              <div class="metric">
+                <span>Uptime</span>
+                <strong id="uptime">-</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Activity</h2>
+              <p class="panel-subtitle">Command usage appears after the bot records stats.</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="status-grid">
+              <div class="metric">
+                <span>Registered</span>
+                <strong id="registered-users">-</strong>
+              </div>
+              <div class="metric">
+                <span>Plugins</span>
+                <strong id="plugin-count">-</strong>
+              </div>
+              <div class="metric">
+                <span>Banned</span>
+                <strong id="banned-users">-</strong>
+              </div>
+              <div class="metric">
+                <span>Active Groups</span>
+                <strong id="active-groups">-</strong>
+              </div>
+            </div>
+            <div id="plugins-container" class="plugin-list">
+              <div class="plugin-item"><span>No plugin usage data available yet</span><span class="stat-value">-</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    let latestPairingCode = '';
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = value || '-';
+    }
+
+    function setConnectionState(data) {
+      const pill = document.getElementById('connection-pill');
+      const text = document.getElementById('connection-text');
+      pill.classList.remove('connected', 'error');
+
+      if (data.connected) {
+        pill.classList.add('connected');
+        text.textContent = 'Connected';
+      } else if (data.status === 'error') {
+        pill.classList.add('error');
+        text.textContent = 'Needs attention';
+      } else {
+        text.textContent = 'Waiting';
+      }
+    }
+
+    function formatDisplayCode(code) {
+      const compactCode = (code || '').replace(/[^0-9A-Za-z]/g, '');
+      return compactCode.match(/.{1,4}/g)?.join('-') || compactCode;
+    }
+
+    function updatePairingCode(code, phone, displayCode) {
+      const rawCode = (code || '').replace(/[^0-9A-Za-z]/g, '');
+      latestPairingCode = rawCode;
+      if (!rawCode) return;
+      setText('pairing-code', rawCode);
+      setText('code-phone', phone ? `+${phone}` : '');
+      setText('display-code-note', `Visual format: ${displayCode || formatDisplayCode(rawCode)}`);
+      document.getElementById('code-stage').classList.remove('hidden');
+    }
+
+    function checkStatus() {
+      fetch('/pairing-status')
+        .then(response => response.json())
+        .then(data => {
+          setConnectionState(data);
+          setText('pairing-state', data.connected ? 'Connected' : (data.status || 'Idle'));
+          setText('pairing-phone', data.phoneNumber);
+          document.getElementById('status-detail').textContent = data.error || (data.connected ? 'Bot is linked.' : 'Ready for manual pairing.');
+
+          if (data.connected) {
+            document.getElementById('pairing-container').classList.add('hidden');
+            document.getElementById('success-container').classList.remove('hidden');
+            if (data.stats) updateDashboard(data.stats);
+            else fetchAIStats();
+          } else {
+            document.getElementById('pairing-container').classList.remove('hidden');
+            document.getElementById('success-container').classList.add('hidden');
+            if (data.pairingCode) updatePairingCode(data.pairingCode, data.phoneNumber, data.displayCode);
+          }
+        })
+        .catch(error => {
+          console.error('Error checking status:', error);
+          document.getElementById('connection-pill').classList.add('error');
+          document.getElementById('connection-text').textContent = 'Offline';
+          document.getElementById('status-detail').textContent = 'Unable to reach the local bot server.';
+        });
+    }
+
+    async function requestPairing() {
+      const phoneInput = document.getElementById('phone-number');
+      const button = document.getElementById('pair-button');
+      const result = document.getElementById('pairing-result');
+      const phoneNumber = phoneInput.value.trim();
+
+      if (!phoneNumber) {
+        result.textContent = 'Enter a phone number first.';
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Requesting';
+      result.textContent = 'Requesting a new code...';
+      document.getElementById('code-stage').classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          result.textContent = data.error || 'Failed to generate pairing code.';
+          return;
         }
 
-        // Check immediately and then every 3 seconds
+        if (data.alreadyConnected) {
+          result.textContent = data.message;
+          return;
+        }
+
+        result.textContent = 'Code ready.';
+        updatePairingCode(data.pairingCode, data.phoneNumber, data.displayCode);
         checkStatus();
-        setInterval(checkStatus, 3000);
-        
-        // Fetch updated stats every 30 seconds when connected
-        setInterval(() => {
-            if (!document.getElementById('success-container').classList.contains('hidden')) {
-                fetchAIStats();
-            }
-        }, 30000);
-    </script>
+      } catch (error) {
+        console.error('Error requesting pairing code:', error);
+        result.textContent = 'Failed to request pairing code.';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Request Code';
+      }
+    }
+
+    async function copyPairingCode() {
+      const result = document.getElementById('pairing-result');
+      if (!latestPairingCode) return;
+
+      try {
+        await navigator.clipboard.writeText(latestPairingCode);
+        result.textContent = 'Code copied.';
+      } catch {
+        result.textContent = 'Select the code and copy it manually.';
+      }
+    }
+
+    function fetchAIStats() {
+      fetch('/bot-stats')
+        .then(response => response.json())
+        .then(data => updateDashboard(data))
+        .catch(error => console.error('Error fetching stats:', error));
+    }
+
+    function updateDashboard(stats) {
+      setText('user-count', stats.users);
+      setText('registered-users', stats.registeredUsers);
+      setText('banned-users', stats.bannedUsers);
+      setText('group-count', stats.groups);
+      setText('chat-count', stats.privateChats);
+      setText('active-groups', stats.activeGroups);
+      setText('plugin-count', stats.plugins);
+      setText('uptime', stats.uptime);
+
+      const pluginsContainer = document.getElementById('plugins-container');
+      if (stats.topPlugins && stats.topPlugins.length > 0) {
+        pluginsContainer.innerHTML = '';
+        stats.topPlugins.forEach(plugin => {
+          const item = document.createElement('div');
+          item.className = 'plugin-item';
+          item.innerHTML = `<span>${plugin.name.replace('.js', '')}</span><span class="stat-value">${plugin.total}</span>`;
+          pluginsContainer.appendChild(item);
+        });
+      }
+    }
+
+    checkStatus();
+    setInterval(checkStatus, 3000);
+    setInterval(() => {
+      if (!document.getElementById('success-container').classList.contains('hidden')) {
+        fetchAIStats();
+      }
+    }, 30000);
+  </script>
 </body>
 </html>

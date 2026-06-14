@@ -300,26 +300,36 @@ export async function handler(chatUpdate) {
           continue
       }
       if (typeof plugin !== 'function') continue
-      if ((usedPrefix = (match[0] || '')[0])) {
-        let noPrefix = m.text.replace(usedPrefix, '')
-        let [command, ...args] = noPrefix.trim().split` `.filter(v => v)
+      let matchedPrefix = (match[0] || '')[0]
+      let noPrefix = matchedPrefix ? m.text.replace(matchedPrefix, '') : m.text
+      let [command, ...args] = noPrefix.trim().split` `.filter(v => v)
+      command = (command || '').toLowerCase()
+      let isAcceptWithPrefix =
+        plugin.command instanceof RegExp
+          ? plugin.command.test(command)
+          : Array.isArray(plugin.command)
+            ? plugin.command.some(cmd =>
+                cmd instanceof RegExp
+                  ? cmd.test(command)
+                  : cmd === command
+              )
+            : typeof plugin.command === 'string'
+              ? plugin.command === command
+              : false
+      let isBareAccept =
+        !matchedPrefix &&
+        !plugin.customPrefix &&
+        (Array.isArray(plugin.command)
+          ? plugin.command.some(cmd => typeof cmd === 'string' && cmd === command)
+          : typeof plugin.command === 'string' && plugin.command === command)
+      let isAccept = matchedPrefix ? isAcceptWithPrefix : isBareAccept
+
+      if (matchedPrefix || isAccept) {
+        usedPrefix = matchedPrefix || ''
         args = args || []
         let _args = noPrefix.trim().split` `.slice(1)
         let text = _args.join` `
-        command = (command || '').toLowerCase()
         let fail = plugin.fail || global.dfail
-        let isAccept =
-          plugin.command instanceof RegExp
-            ? plugin.command.test(command)
-            : Array.isArray(plugin.command)
-              ? plugin.command.some(cmd =>
-                  cmd instanceof RegExp
-                    ? cmd.test(command)
-                    : cmd === command
-                )
-              : typeof plugin.command === 'string'
-                ? plugin.command === command
-                : false
 
         if (!isAccept) continue
         m.plugin = name
