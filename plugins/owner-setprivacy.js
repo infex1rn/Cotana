@@ -1,5 +1,4 @@
-import pkg from '@whiskeysockets/baileys'
-const { WA_DEFAULT_EPHEMERAL } = pkg
+import { WA_DEFAULT_EPHEMERAL } from '@whiskeysockets/baileys'
 const handler = async (m, { conn, args, usedPrefix }) => {
   const validValues = {
     lastseen: ['all', 'contacts', 'contact_blacklist', 'none'],
