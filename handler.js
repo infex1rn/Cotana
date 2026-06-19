@@ -31,6 +31,51 @@ const delay = ms =>
  */
 import makeWASocketPackage, * as baileys from '@whiskeysockets/baileys'
 const pkg = { ...baileys, default: makeWASocketPackage }
+const { areJidsSameUser, getAggregateVotesInPollMessage } = pkg
+
+function normalizeIdentifier(value = '') {
+  if (!value) return ''
+  const decoded = String(value).decodeJid?.() || String(value)
+  return decoded.replace(/:\d+(?=@)/, '')
+}
+
+function normalizeNumber(value = '') {
+  return String(value).replace(/[^0-9]/g, '')
+}
+
+function toUserJid(value = '') {
+  const number = normalizeNumber(value)
+  return number ? `${number}@s.whatsapp.net` : normalizeIdentifier(value)
+}
+
+function sameUser(a, b) {
+  if (!a || !b) return false
+  const first = normalizeIdentifier(a)
+  const second = normalizeIdentifier(b)
+  const firstNumber = normalizeNumber(first)
+  const secondNumber = normalizeNumber(second)
+  return first === second || (firstNumber && firstNumber === secondNumber) || areJidsSameUser(first, second)
+}
+
+function participantJids(participant = {}) {
+  return [
+    participant.id,
+    participant.jid,
+    participant.lid,
+    participant.phoneNumber,
+    participant.phoneNumber ? toUserJid(participant.phoneNumber) : null
+  ].filter(Boolean).map(normalizeIdentifier)
+}
+
+function findParticipant(participants = [], jid = '') {
+  return participants.find(participant => participantJids(participant).some(id => sameUser(id, jid)))
+}
+
+function isParticipantAdmin(participant = {}) {
+  const admin = participant?.admin
+  return admin === 'admin' || admin === 'superadmin' || admin === true
+}
+
 const { getAggregateVotesInPollMessage } = pkg
 
 export async function handler(chatUpdate) {
@@ -171,12 +216,13 @@ export async function handler(chatUpdate) {
     // Check if it's a command
     const isCommand = global.prefix.test(m.text)
 
-    // Route to AI Chat if session is active and not a command
-    if (isSessionActive(m.chat) && !isCommand && !m.isBaileys && !m.fromMe && m.text) {
+    // Route to AI Chat when a Cotana session is active or the chat-level chatbot toggle is enabled.
+    const shouldUseAIChat = isSessionActive(m.chat) || global.db.data.chats[m.chat]?.chatbot
+    if (shouldUseAIChat && !isCommand && !m.isBaileys && !m.fromMe && m.text) {
       const aiChatPlugin = global.plugins['ai-chat.js']
       if (aiChatPlugin) {
         try {
-          await aiChatPlugin.default(m, { conn: this, text: m.text, usedPrefix: '', command: 'ai' })
+          await aiChatPlugin.call(this, m, { conn: this, text: m.text, usedPrefix: '', command: 'ai' })
           return // Stop further processing
         } catch (e) {
           console.error('Session AI Chat Error:', e)
@@ -185,16 +231,13 @@ export async function handler(chatUpdate) {
     }
 
     // Owner/mod checks
-    const isROwner = [
-      conn.decodeJid(global.conn.user.id),
-      ...global.owner.map(([number]) => number),
-    ]
-      .map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net')
-      .includes(m.sender)
+    const senderJid = normalizeIdentifier(m.sender)
+    const botJid = normalizeIdentifier(conn.decodeJid(global.conn.user?.id || global.conn.user?.jid || conn.user?.id || conn.user?.jid || ''))
+    const ownerJids = [botJid, ...global.owner.map(([number]) => toUserJid(number))].filter(Boolean)
+    const modJids = [...global.mods, ...global.owner.map(([number]) => number)].map(toUserJid).filter(Boolean)
+    const isROwner = ownerJids.some(owner => sameUser(owner, senderJid))
     const isOwner = isROwner || m.fromMe
-    const isMods =
-      isOwner ||
-      global.mods.map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(m.sender)
+    const isMods = isOwner || modJids.some(mod => sameUser(mod, senderJid))
 
     // Message queue for non-mods
     if (opts['queque'] && m.text && !isMods) {
@@ -218,12 +261,11 @@ export async function handler(chatUpdate) {
         ? (conn.chats[m.chat] || {}).metadata || (await this.groupMetadata(m.chat).catch(_ => null))
         : {}) || {}
     const participants = (m.isGroup ? groupMetadata.participants : []) || []
-    const user = (m.isGroup ? participants.find(u => conn.decodeJid(u.id) === m.sender) : {}) || {}
-    const bot =
-      (m.isGroup ? participants.find(u => conn.decodeJid(u.id) == conn.user.jid) : {}) || {}
-    const isRAdmin = user?.admin == 'superadmin' || false
-    const isAdmin = isRAdmin || user?.admin == 'admin' || false
-    const isBotAdmin = bot?.admin || false
+    const user = (m.isGroup ? findParticipant(participants, senderJid) : {}) || {}
+    const bot = (m.isGroup ? findParticipant(participants, botJid || conn.user?.jid || conn.user?.id) : {}) || {}
+    const isRAdmin = user?.admin === 'superadmin' || false
+    const isAdmin = isOwner || isRAdmin || isParticipantAdmin(user)
+    const isBotAdmin = isParticipantAdmin(bot)
 
     // Plugin execution
     const ___dirname = path.join(path.dirname(fileURLToPath(import.meta.url)), './plugins')

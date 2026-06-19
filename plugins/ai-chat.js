@@ -10,10 +10,10 @@ const MAX_HISTORY_LENGTH = 15
 
 let handler = async (m, { conn, text, usedPrefix, command }) => {
   const chatText = text || m.text
-  const apiKey = process.env.GEMINI_API_KEY
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.AI_API_KEY
   
   if (!apiKey) {
-    return m.reply(formatResponse("Ugh, I need my GEMINI_API_KEY to talk! Tell the boss to fix it. 🙄💅"))
+    return m.reply(formatResponse("Ugh, I need GEMINI_API_KEY, GOOGLE_API_KEY, or AI_API_KEY to talk! Tell the boss to fix it. 🙄💅"))
   }
 
   if (!chatText && command !== 'resetai') {
@@ -29,7 +29,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
   
   try {
     await conn.sendPresenceUpdate('composing', m.chat)
-    m.react('😈')
+    await m.react?.('😈')
     
     if (!conversationHistory[userId]) {
       conversationHistory[userId] = []
@@ -78,7 +78,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
       throw new Error(data.error?.message || 'Gemini API Error')
     }
     
-    if (!data.candidates || !data.candidates[0]?.content?.parts[0]?.text) {
+    if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
       throw new Error("I'm speechless... literally. (Invalid response) 🍭")
     }
     
@@ -102,11 +102,11 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
       mentions: [m.sender]
     }, { quoted: m })
     
-    m.react('🍒')
+    await m.react?.('🍒')
     
   } catch (error) {
     console.error('AI Chat Error:', error)
-    m.react('❌')
+    await m.react?.('❌')
     m.reply(formatResponse(`Oops! 🐍 ${error.message}`))
   }
 }

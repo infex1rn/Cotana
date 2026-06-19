@@ -13,6 +13,18 @@ let tags = {
   'owner': '👑 OWNER'
 }
 
+const categoryAliases = {
+  gp: 'group',
+  group: 'group',
+  tools: 'tools',
+  tool: 'tools',
+  dl: 'downloader',
+  download: 'downloader',
+  downloader: 'downloader',
+  main: 'main',
+  owner: 'owner'
+}
+
 const defaultMenu = {
   before: `
 Hii darling! 😈 Ready to see what I can do? 
@@ -72,6 +84,8 @@ let handler = async (m, { conn, usedPrefix: _p, args, command }) => {
     }
     
     let tag = args[0]?.toLowerCase();
+    if (!tag && command?.startsWith('list') && command.length > 4) tag = command.slice(4).toLowerCase();
+    tag = categoryAliases[tag] || tag;
     let text = defaultMenu.before;
     
     if (tag && tags[tag] && commandsMap[tag]) {
@@ -122,10 +136,10 @@ function readMore(length) {
   return String.fromCharCode(8206).repeat(4001 - length)
 }
 
-handler.help = ['list', 'listcmd', 'cmdlist']
+handler.help = ['list', 'listcmd', 'cmdlist', 'listgp', 'listtools', 'listdl', 'listmain', 'listowner']
 handler.tags = ['main']
-handler.command = /^(list|listcmd|cmdlist)$/i
-handler.desc = 'Lists all available commands with their descriptions, organized by category'
+handler.command = /^(list|listcmd|cmdlist|listgp|listgroup|listtools?|listdl|listdownload(?:er)?|listmain|listowner)$/i
+handler.desc = 'Lists available commands by category. Use .listgp, .listtools, .listdl, .listmain, .listowner, or .list <category>.'
 
 export default handler
 

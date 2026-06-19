@@ -38,7 +38,7 @@ import yargs from 'yargs'
 import { makeWASocket, protoType, serialize } from './lib/simple.js'
 
 import makeWASocketPackage, * as baileys from '@whiskeysockets/baileys'
-const pkg = { ...baileys, default: makeWASocketPackage }
+const pkg = { ...baileys, default: makeWASocketPackage, proto: baileys.WAProto }
 const {
   DisconnectReason,
   Browsers,
@@ -51,7 +51,7 @@ const {
   useMultiFileAuthState
 } = pkg
 
-const makeWASocketDefault = pkg.default || pkg
+const makeWASocketDefault = pkg.makeWASocket || pkg.default || pkg
 // Re-map delay to maintain compatibility
 const MessageRetryMap = {} 
 
@@ -159,6 +159,7 @@ function isPartialUnregisteredSession(creds) {
 function quarantineLocalSession(reason = 'partial') {
   if (!existsSync(SESSION_DIR)) return false
 
+let authState
   const backupDir = join(__dirname, `session-${reason}-${Date.now()}`)
   renameSync(SESSION_DIR, backupDir)
   console.warn(chalk.yellow(`Moved stale local auth session to ${backupDir}`))
@@ -173,6 +174,8 @@ try {
   console.warn(
     chalk.yellow(`MongoDB auth store unavailable; using local session files: ${error.message}`)
   )
+  mkdirSync(join(__dirname, 'session'), { recursive: true })
+  authState = await useMultiFileAuthState(join(__dirname, 'session'))
   usingLocalAuth = true
   mkdirSync(SESSION_DIR, { recursive: true })
   authState = await useMultiFileAuthState(SESSION_DIR)
@@ -190,6 +193,15 @@ const {
   closeConnection = async () => {}
 } = authState
 
+const { version: waWebVersion } = await fetchLatestBaileysVersion().catch(async error => {
+  console.warn(
+    chalk.yellow(`Unable to fetch latest Baileys version; trying WhatsApp Web version: ${error.message}`)
+  )
+  return fetchLatestWaWebVersion().catch(waError => {
+    console.warn(
+      chalk.yellow(`Unable to fetch latest WhatsApp Web version; using bundled fallback: ${waError.message}`)
+    )
+    return { version: [2, 3000, 1017531287] }
 const { version: waWebVersion } = await withTimeout(
   fetchLatestBaileysVersion(),
   10000,
@@ -381,6 +393,14 @@ global.requestPairingCode = async function requestPairingCode(phoneNumber) {
 }
 
 conn.logger.info('\nWaiting For Login\n')
+
+if (!conn.authState.creds.registered && pairingPhoneNumber) {
+  setTimeout(() => {
+    requestPairingCode('socket-ready').catch(error => {
+      console.error('Error requesting initial pairing code:', error)
+    })
+  }, 3000)
+}
 
 if (!opts['test']) {
   if (global.db) {
