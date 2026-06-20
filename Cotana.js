@@ -283,6 +283,9 @@ let pairingAttempts = 0
 let pairingRequestInFlight = false
 let pendingPairingRequest = null
 let isWhatsAppConnected = false
+let reconnectInFlight = false
+let reconnectTimer = null
+const RECONNECT_DELAY_MS = 5000
 
 async function writeDatabaseIfConnected(data = global.db?.data) {
   if (!isWhatsAppConnected || !global.db?.data) return false
@@ -308,6 +311,37 @@ async function saveCredsWhenValid() {
   const creds = global.conn?.authState?.creds
   if (!isWhatsAppConnected && !creds?.registered) return
   await saveCreds()
+}
+
+function clearReconnectState() {
+  reconnectInFlight = false
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function shouldReconnectSocket(code, isRegistered) {
+  if (!isRegistered && code === 428) return false
+  if (code === DisconnectReason.loggedOut) return false
+  return true
+}
+
+function scheduleSocketReconnect(reason = 'connection close') {
+  if (reconnectInFlight || reconnectTimer) return
+
+  reconnectInFlight = true
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null
+    try {
+      conn.logger.info(chalk.yellow(`\nReconnecting WhatsApp socket after ${reason}...`))
+      await global.reloadHandler(true)
+    } catch (error) {
+      console.error('Error reconnecting WhatsApp socket:', error)
+    } finally {
+      reconnectInFlight = false
+    }
+  }, RECONNECT_DELAY_MS)
 }
 
 async function fulfillPendingPairingCode(trigger = 'connection.update') {
@@ -422,50 +456,58 @@ async function connectionUpdate(update) {
   const code =
     lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode
 
-  if (!isRegistered && code === 428) {
+  if (connection === 'close') {
+    isWhatsAppConnected = false
+    pairingRequestInFlight = false
     if (process.send) {
       process.send({
         type: 'connection-status',
         connected: false
       })
     }
-    conn.logger.error(chalk.yellow('\nConnection closed while waiting for requested pairing'))
-    return
-  }
 
-  if (code && code !== DisconnectReason.loggedOut && activeConn?.ws.socket == null) {
-    try {
-      conn.logger.info(await global.reloadHandler(true))
-    } catch (error) {
-      console.error('Error reloading handler:', error)
+    if (!isRegistered && code === 428) {
+      conn.logger.error(chalk.yellow('\nConnection closed while waiting for requested pairing'))
+      return
     }
-  }
 
-  if (code && code === DisconnectReason.restartRequired) {
-    conn.logger.info(chalk.yellow('\n🚩 Restart Required... Preparing for restart'))
-    
-    try {
-      if (global.db.data) {
-        conn.logger.info(chalk.blue('Saving database before restart...'))
-        await writeDatabaseIfConnected()
-        conn.logger.info(chalk.green('Database saved successfully'))
+    if (code === DisconnectReason.loggedOut) {
+      conn.logger.error(chalk.yellow('\nWhatsApp logged out. Get a new session from the dashboard.'))
+      clearReconnectState()
+      return
+    }
+
+    if (code === DisconnectReason.restartRequired) {
+      conn.logger.info(chalk.yellow('\n🚩 Restart Required... Preparing for restart'))
+
+      try {
+        if (global.db.data) {
+          conn.logger.info(chalk.blue('Saving database before restart...'))
+          await writeDatabaseIfConnected()
+          conn.logger.info(chalk.green('Database saved successfully'))
+        }
+      } catch (error) {
+        console.error('Error saving database before restart:', error)
       }
-    } catch (error) {
-      console.error('Error saving database before restart:', error)
+
+      if (process.send) {
+        process.send('reset')
+      } else {
+        scheduleSocketReconnect('restart required')
+      }
+      return
     }
-    
-    if (process.send) {
-      process.send('reset')
-    } else {
-      conn.logger.info(chalk.yellow('Reloading handler...'))
-      await global.reloadHandler(true)
-    }
+
+    conn.logger.error(chalk.yellow(`\nConnection closed with code ${code || 'unknown'}. Reconnect ${shouldReconnectSocket(code, isRegistered) ? 'scheduled' : 'skipped'}.`))
+    if (shouldReconnectSocket(code, isRegistered)) scheduleSocketReconnect(`close code ${code || 'unknown'}`)
+    return
   }
 
   if (global.db.data == null) loadDatabase()
 
   if (connection === 'open') {
     isWhatsAppConnected = true
+    clearReconnectState()
     await saveCredsWhenValid()
 
     if (process.send) {
@@ -491,18 +533,6 @@ async function connectionUpdate(update) {
     }
 
     conn.logger.info(chalk.yellow('\n🚩 R E A D Y'))
-  }
-
-  if (connection === 'close') {
-    isWhatsAppConnected = false
-    pairingRequestInFlight = false
-    if (process.send) {
-      process.send({ 
-        type: 'connection-status', 
-        connected: false 
-      })
-    }
-    conn.logger.error(chalk.yellow(`\nConnection closed... Get a new session`))
   }
 }
 
@@ -571,10 +601,10 @@ global.reloadHandler = async function (restatConn) {
   if (restatConn) {
     const oldChats = global.conn.chats
     const oldConn = global.conn
+    oldConn.ev.removeAllListeners()
     try {
       oldConn.ws.close()
     } catch {}
-    oldConn.ev.removeAllListeners()
     global.conn = makeWASocket(connectionOptions, {
       chats: oldChats,
     })
