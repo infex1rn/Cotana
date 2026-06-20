@@ -6,7 +6,7 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-const ownervb = process.env.OWNERS || "917605902011;COTANA;1234567890;User"
+const ownervb = process.env.OWNERS || "2349130476348;INFEXJAY;2349133228349;INFEX1RN"
 
 const ownerlist = ownervb.split(';');
 
@@ -20,8 +20,8 @@ for (let i = 0; i < ownerlist.length; i += 2) {
     global.owner.push(owner);
 }
 
-global.mods = ['917605902011']
-global.allowed = ['917605902011']
+global.mods = ['2349130476348']
+global.allowed = ['2349130476348']
 
 // Sticker WM
 global.botname = process.env.BOTNAME || 'COTANA'
