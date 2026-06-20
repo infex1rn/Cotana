@@ -1,5 +1,5 @@
 import { persona, formatResponse } from './lib/responses.js'
-import { startSession, updateSession, isSessionActive, setupTimeout } from './lib/sessions.js'
+import { startSession, updateSession, endSession, isSessionActive, setupTimeout } from './lib/sessions.js'
 import { smsg } from './lib/simple.js'
 import { format } from 'util'
 import { fileURLToPath } from 'url'
@@ -32,6 +32,8 @@ const delay = ms =>
 import makeWASocketPackage, * as baileys from '@whiskeysockets/baileys'
 const pkg = { ...baileys, default: makeWASocketPackage }
 const { areJidsSameUser, getAggregateVotesInPollMessage } = pkg
+
+const sessionEndPattern = /^(bye|stop|end|close|quit)\s+cotana$|^cotana\s+(bye|stop|end|close|quit)$/i
 
 function normalizeIdentifier(value = '') {
   if (!value) return ''
@@ -203,6 +205,11 @@ export async function handler(chatUpdate) {
     const normalizedText = m.text.toLowerCase().trim()
     const matchedWakeWord = wakeWords.find(word => normalizedText === word || normalizedText.startsWith(`${word} `))
     const wasSessionActive = isSessionActive(m.chat)
+
+    if (sessionEndPattern.test(normalizedText) && wasSessionActive) {
+      endSession(m.chat)
+      return m.reply(formatResponse(persona.messages.sessionEnd(m.sender)))
+    }
     
     if (matchedWakeWord) {
       startSession(m.chat, m.sender)

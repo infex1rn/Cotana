@@ -1,6 +1,6 @@
 import fetch from 'node-fetch'
 import { persona, formatResponse, formatStatus, formatUsage } from '../lib/responses.js'
-import { isSessionActive, setupTimeout, startSession } from '../lib/sessions.js'
+import { endSession, isSessionActive, setupTimeout, startSession } from '../lib/sessions.js'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -73,32 +73,38 @@ let handler = async (m, {
   isAdmin,
   isBotAdmin
 }) => {
-  const chatText = text || m.text
+  const chatText = typeof text === 'string' ? text.trim() : (m.text || '').trim()
   const apiKey = getApiKey()
-  
+
+  if (command === 'cotana') {
+    startSession(m.chat, m.sender)
+    setupTimeout(m.chat, conn)
+    if (!chatText || /^\.?cotana$/i.test(chatText)) {
+      return m.reply(formatResponse(persona.messages.sessionStart))
+    }
+  }
+
+  const userId = m.sender
+
+  if (/^(endai|stopai)$/i.test(command)) {
+    endSession(m.chat)
+    delete conversationHistory[userId]
+    return m.reply(formatResponse(persona.messages.sessionEnd(m.sender)))
+  }
+
+  if (command === 'resetai') {
+    delete conversationHistory[userId]
+    return m.reply(formatStatus('AI memory reset', 'This chat history is clear.'))
+  }
+
   if (!apiKey) {
     return m.reply(formatStatus('AI setup needed', 'Add a Gemini API key to the server environment.', [
       API_KEY_ENV_NAMES.join(', ')
     ]))
   }
 
-  if (command === 'cotana') {
-    startSession(m.chat, m.sender)
-    setupTimeout(m.chat, conn)
-    if (!chatText || chatText.trim().toLowerCase() === 'cotana') {
-      return m.reply(formatResponse(persona.messages.sessionStart))
-    }
-  }
-
-  if (!chatText && command !== 'resetai') {
+  if (!chatText) {
     return m.reply(formatUsage(`${usedPrefix}chat <message>`, `${usedPrefix}chat tell me something`))
-  }
-  
-  const userId = m.sender
-
-  if (command === 'resetai') {
-    delete conversationHistory[userId]
-    return m.reply(formatStatus('AI memory reset', 'This chat history is clear.'))
   }
 
   try {
@@ -209,9 +215,9 @@ let handler = async (m, {
   }
 }
 
-handler.help = ['chat <message>', 'resetai']
+handler.help = ['chat <message>', 'cotana', 'resetai', 'endai']
 handler.tags = ['tools']
-handler.command = /^(ai|chat|resetai|cotana)$/i
+handler.command = /^(ai|chat|resetai|cotana|endai|stopai)$/i
 
 // Custom matching for sessions
 handler.before = async function (m, { conn }) {
