@@ -198,13 +198,18 @@ export async function handler(chatUpdate) {
 
     // Cotana Persona & Session Management
     const wakeWords = ['hey cotana', 'cotana']
-    const isWakeWord = wakeWords.some(word => m.text.toLowerCase().startsWith(word))
+    const normalizedText = m.text.toLowerCase().trim()
+    const matchedWakeWord = wakeWords.find(word => normalizedText === word || normalizedText.startsWith(`${word} `))
+    const wasSessionActive = isSessionActive(m.chat)
     
-    if (isWakeWord) {
+    if (matchedWakeWord) {
       startSession(m.chat, m.sender)
       setupTimeout(m.chat, this)
-      if (m.text.toLowerCase().trim() === 'hey cotana' || m.text.toLowerCase().trim() === 'cotana') {
+      if (normalizedText === matchedWakeWord && !wasSessionActive) {
         return m.reply(formatResponse(persona.messages.sessionStart))
+      }
+      if (normalizedText !== matchedWakeWord) {
+        m.text = m.text.slice(matchedWakeWord.length).trim() || m.text
       }
     } else if (isSessionActive(m.chat)) {
       updateSession(m.chat, m.sender)
@@ -214,22 +219,7 @@ export async function handler(chatUpdate) {
     // Check if it's a command
     const isCommand = global.prefix.test(m.text)
 
-    // Route to AI Chat when a Cotana session is active or the chat-level chatbot toggle is enabled.
-    const shouldUseAIChat = isSessionActive(m.chat) || global.db.data.chats[m.chat]?.chatbot
-    if (shouldUseAIChat && !isCommand && !m.isBaileys && !m.fromMe && m.text) {
-      const aiChatPlugin = global.plugins['ai-chat.js']
-      const aiChatHandler = aiChatPlugin?.default || aiChatPlugin
-      if (typeof aiChatHandler === 'function') {
-        try {
-          await aiChatHandler.call(this, m, { conn: this, text: m.text, usedPrefix: '', command: 'ai' })
-          return // Stop further processing
-        } catch (e) {
-          console.error('Session AI Chat Error:', e)
-        }
-      }
-    }
-
-    // Owner/mod checks
+    // Owner/mod and group context checks
     const senderJid = normalizeIdentifier(m.sender)
     const botJid = normalizeIdentifier(conn.decodeJid(global.conn.user?.id || global.conn.user?.jid || conn.user?.id || conn.user?.jid || ''))
     const ownerJids = [botJid, ...global.owner.map(([number]) => toUserJid(number))].filter(Boolean)
@@ -238,17 +228,6 @@ export async function handler(chatUpdate) {
     const isOwner = isROwner || m.fromMe
     const isMods = isOwner || modJids.some(mod => sameUser(mod, senderJid))
 
-    // Message queue for non-mods
-    if (opts['queque'] && m.text && !isMods) {
-      let queque = this.msgqueque,
-        time = 1000 * 5
-      const previousID = queque[queque.length - 1]
-      queque.push(m.id || m.key.id)
-      setInterval(async function () {
-        if (queque.indexOf(previousID) === -1) clearInterval(this)
-        await delay(time)
-      }, time)
-    }
     if (process.env.MODE && process.env.MODE.toLowerCase() === 'private' && !(isROwner || isOwner))
       return
     if (m.isBaileys) return
@@ -266,6 +245,47 @@ export async function handler(chatUpdate) {
     const isAdmin = isOwner || isRAdmin || isParticipantAdmin(user)
     const isBotAdmin = isParticipantAdmin(bot)
 
+    // Route to AI Chat when a Cotana session is active or the chat-level chatbot toggle is enabled.
+    const shouldUseAIChat = isSessionActive(m.chat) || global.db.data.chats[m.chat]?.chatbot
+    if (shouldUseAIChat && !isCommand && !m.fromMe && m.text) {
+      const aiChatPlugin = global.plugins['ai-chat.js']
+      const aiChatHandler = aiChatPlugin?.default || aiChatPlugin
+      if (typeof aiChatHandler === 'function') {
+        try {
+          await aiChatHandler.call(this, m, {
+            conn: this,
+            text: m.text,
+            usedPrefix: '',
+            command: 'ai',
+            participants,
+            groupMetadata,
+            user,
+            bot,
+            isROwner,
+            isOwner,
+            isMods,
+            isRAdmin,
+            isAdmin,
+            isBotAdmin
+          })
+          return // Stop further processing
+        } catch (e) {
+          console.error('Session AI Chat Error:', e)
+        }
+      }
+    }
+
+    // Message queue for non-mods
+    if (opts['queque'] && m.text && !isMods) {
+      let queque = this.msgqueque,
+        time = 1000 * 5
+      const previousID = queque[queque.length - 1]
+      queque.push(m.id || m.key.id)
+      setInterval(async function () {
+        if (queque.indexOf(previousID) === -1) clearInterval(this)
+        await delay(time)
+      }, time)
+    }
     // Plugin execution
     const ___dirname = path.join(path.dirname(fileURLToPath(import.meta.url)), './plugins')
     for (let name in global.plugins) {

@@ -58,7 +58,6 @@ handler.before = async (m, { conn }) => {
         },
         mimetype: audio.mimetype,
         ptt: false,
-        waveform: [100, 0, 0, 0, 0, 0, 100],
         fileName: audio.fileName,
       }
       
