@@ -23,22 +23,22 @@ let handler = async (m, { conn, usedPrefix, command }) => {
     let str = [
       `${greeting}, ${taguser}`,
       '',
-      `I'm ${persona.name}, your animegirl bot with a sharp mouth and a soft spot for chaos.`,
+      `I'm ${persona.name}, your sharp, playful assistant from ${persona.organization}.`,
       '',
       formatSection('Profile', [
-        { icon: '✦', label: 'Name', value: persona.profileTitle },
-        { icon: '✦', label: 'Vibe', value: 'sassy animegirl assistant' },
-        { icon: '✦', label: 'Master', value: persona.creator },
-        { icon: '✦', label: 'Studio', value: persona.organization },
-        { icon: '✦', label: 'Mood', value: 'online, playful, watching the chat' },
-        { icon: '✦', label: 'Uptime', value: uptime },
-        { icon: '✦', label: 'Fans', value: `${totaluser} total, ${rtotalreg} registered` }
+        { icon: '💎', label: 'Name', value: persona.name },
+        { icon: '👑', label: 'Master', value: persona.creator },
+        { icon: '🏢', label: 'Studio', value: persona.organization },
+        { icon: '🔥', label: 'Mood', value: 'online, playful, watching the chat' },
+        { icon: '⏱️', label: 'Uptime', value: uptime, valueStyle: 'mono' },
+        { icon: '👥', label: 'Users', value: `${totaluser} total, ${rtotalreg} registered` }
       ]),
       '',
       formatSection('Quick actions', [
-        `${usedPrefix}list    view all commands`,
-        `${usedPrefix}ping    check response speed`,
-        `${usedPrefix}alive   check bot status`
+        `📚 \`${usedPrefix}list\`    view all commands`,
+        `⚡ \`${usedPrefix}ping\`    check response speed`,
+        `🟢 \`${usedPrefix}alive\`   check bot status`,
+        `💬 \`${usedPrefix}cotana\`  start AI session`
       ]),
       readMore
     ].join('\n')
@@ -46,7 +46,7 @@ let handler = async (m, { conn, usedPrefix, command }) => {
     await sendMenuMessage(
       conn,
       m,
-      formatResponse(str.trim(), { title: `${persona.profileTitle} menu`, footer: `© ${persona.organization}` }),
+      formatResponse(str.trim(), { title: `${persona.name} menu`, footer: `© ${persona.organization}` }),
       logo
     )
     

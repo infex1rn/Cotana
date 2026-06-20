@@ -1,16 +1,24 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { persona, formatResponse } from '../lib/responses.js'
+import { persona, formatResponse, waStyle } from '../lib/responses.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let tags = {
-  'main': '👑 MAIN',
+  'main': '💎 MAIN',
   'tools': '🧰 TOOLS',
   'downloader': '📥 DOWNLOADER',
   'group': '👥 GROUP',
   'owner': '👑 OWNER'
+}
+
+const tagIcons = {
+  main: '💎',
+  tools: '🧰',
+  downloader: '📥',
+  group: '👥',
+  owner: '👑'
 }
 
 const categoryAliases = {
@@ -28,11 +36,12 @@ const categoryAliases = {
 const defaultMenu = {
   before: `
 Choose a category or scan everything below.
-Use .listdl, .listgp, .listtools, .listmain, or .listowner.
+📥 .listdl   👥 .listgp   🧰 .listtools
+💎 .listmain 👑 .listowner
 
 %readmore`.trimStart(),
-  header: '\n✧ %category',
-  body: '  %cmd',
+  header: '\n%icon %category',
+  body: '  %icon %cmd',
   footer: '\n',
   after: `© ${persona.organization}`,
 }
@@ -89,11 +98,11 @@ let handler = async (m, { conn, usedPrefix: _p, args, command }) => {
     let text = defaultMenu.before;
     
     if (tag && tags[tag] && commandsMap[tag]) {
-      text += generateMenu(defaultMenu, tags[tag], commandsMap[tag], _p, descMap)
+      text += generateMenu(defaultMenu, tag, tags[tag], commandsMap[tag], _p, descMap)
     } else {
       for (let tag in commandsMap) {
         if (!commandsMap[tag] || commandsMap[tag].length === 0) continue;
-        text += generateMenu(defaultMenu, tags[tag], commandsMap[tag], _p, descMap)
+        text += generateMenu(defaultMenu, tag, tags[tag], commandsMap[tag], _p, descMap)
       }
     }
     
@@ -113,7 +122,7 @@ let handler = async (m, { conn, usedPrefix: _p, args, command }) => {
     await sendListMessage(
       conn,
       m,
-      formatResponse(`${text.trim()}\n\n.ping  response speed\n.menu  home panel`, {
+      formatResponse(`${text.trim()}\n\n⚡ ${waStyle.mono('.ping')} response speed\n🏠 ${waStyle.mono('.menu')} home panel`, {
         title: tag && tags[tag] ? `${tags[tag]} commands` : 'Command directory',
         footer: persona.organization
       }),
@@ -126,11 +135,14 @@ let handler = async (m, { conn, usedPrefix: _p, args, command }) => {
   }
 }
 
-function generateMenu(menu, category, commands, prefix, descMap) {
-  let text = menu.header.replace(/%category/g, category) + '\n'
+function generateMenu(menu, tag, category, commands, prefix, descMap) {
+  const icon = tagIcons[tag] || '✦'
+  let text = menu.header.replace(/%category/g, category).replace(/%icon/g, icon) + '\n'
   for (let command of commands) {
     let cmd = command.replace(/:/g, '')
-    text += menu.body.replace(/%cmd/g, prefix + cmd) + '\n'
+    text += menu.body
+      .replace(/%icon/g, icon)
+      .replace(/%cmd/g, waStyle.mono(prefix + cmd)) + '\n'
   }
   return text + menu.footer
 }
