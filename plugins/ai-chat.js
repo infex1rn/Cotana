@@ -7,13 +7,19 @@ dotenv.config()
 
 const conversationHistory = {}
 const MAX_HISTORY_LENGTH = 15
+const API_KEY_ENV_NAMES = ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'AI_API_KEY']
+
+function getApiKey() {
+  return API_KEY_ENV_NAMES.map(name => process.env[name]?.trim()).find(Boolean)
+}
 
 let handler = async (m, { conn, text, usedPrefix, command }) => {
   const chatText = text || m.text
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.AI_API_KEY
+  const apiKey = getApiKey()
+  const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash'
   
   if (!apiKey) {
-    return m.reply(formatResponse("Ugh, I need GEMINI_API_KEY, GOOGLE_API_KEY, or AI_API_KEY to talk! Tell the boss to fix it. 🙄💅"))
+    return m.reply(formatResponse(`Ugh, I need an API key to talk! Set one of these env vars: ${API_KEY_ENV_NAMES.join(', ')}.`))
   }
 
   if (!chatText && command !== 'resetai') {
@@ -48,7 +54,7 @@ let handler = async (m, { conn, text, usedPrefix, command }) => {
     
     contents.push({ role: 'user', parts: [{ text: chatText }] })
     
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
     
     const payload = {
       contents: contents,

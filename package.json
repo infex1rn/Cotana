@@ -39,6 +39,7 @@
     "url-regex-safe": "^4.0.0",
     "wa-sticker-formatter": "^4.4.4",
     "yargs": "^17.6.0",
+    "youtube-dl-exec": "^3.1.7",
     "yt-search": "^2.13.1"
   },
   "devDependencies": {

@@ -1,24 +1,10 @@
 import fetch from 'node-fetch'
 import ytSearch from 'yt-search'
 import fs from 'fs'
-import { pipeline } from 'stream'
-import { promisify } from 'util'
 import os from 'os'
-import ytdl from '@distube/ytdl-core'
+import { downloadYouTubeAudio } from '../lib/youtube-downloader.js'
 
-const streamPipeline = promisify(pipeline)
 const tmpDir = os.tmpdir()
-
-// Load cookies for YouTube
-let agent
-try {
-  if (fs.existsSync('Assets/cookies.json')) {
-    const cookies = JSON.parse(fs.readFileSync('Assets/cookies.json', 'utf-8'))
-    agent = ytdl.createAgent(cookies)
-  }
-} catch (e) {
-  console.error('Error loading YouTube cookies:', e)
-}
 
 const handler = async (m, { conn, command, text, args, usedPrefix }) => {
   if (!text) throw `give a text to search Example: *${usedPrefix + command}* sefali odia song`
@@ -58,41 +44,31 @@ handler.before = async (m, { conn }) => {
     clearTimeout(timeout)
     
     const { url: selectedUrl, title: songTitle } = result.allLinks[inputNumber - 1]
-    const safeTitle = songTitle.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_').substring(0, 100)
     
     try {
       await conn.reply(m.chat, `⏳ *Downloading* "${songTitle}", please wait...`, m)
       
-      const filePath = `${tmpDir}/${safeTitle}.mp3`
-      
-      const stream = ytdl(selectedUrl, {
-        quality: 'highestaudio',
-        filter: 'audioonly',
-        agent
-      })
-      
-      const fileStream = fs.createWriteStream(filePath)
-      await streamPipeline(stream, fileStream)
+      const audio = await downloadYouTubeAudio(selectedUrl, tmpDir)
       
       await conn.reply(m.chat, `✅ *Download complete!* Sending the audio now...`, m)
       
       const doc = {
         audio: {
-          url: filePath,
+          url: audio.filePath,
         },
-        mimetype: 'audio/mpeg',
+        mimetype: audio.mimetype,
         ptt: false,
         waveform: [100, 0, 0, 0, 0, 0, 100],
-        fileName: `${safeTitle}.mp3`,
+        fileName: audio.fileName,
       }
       
       await conn.sendMessage(m.chat, doc, { quoted: m })
       
       setTimeout(() => {
         try {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath)
-            console.log(`Deleted temp file: ${filePath}`)
+          if (fs.existsSync(audio.filePath)) {
+            fs.unlinkSync(audio.filePath)
+            console.log(`Deleted temp file: ${audio.filePath}`)
           }
         } catch (cleanupErr) {
           console.error('Error during file cleanup:', cleanupErr)

@@ -76,8 +76,6 @@ function isParticipantAdmin(participant = {}) {
   return admin === 'admin' || admin === 'superadmin' || admin === true
 }
 
-const { getAggregateVotesInPollMessage } = pkg
-
 export async function handler(chatUpdate) {
   this.msgqueque = this.msgqueque || []
   if (!chatUpdate) return
@@ -220,9 +218,10 @@ export async function handler(chatUpdate) {
     const shouldUseAIChat = isSessionActive(m.chat) || global.db.data.chats[m.chat]?.chatbot
     if (shouldUseAIChat && !isCommand && !m.isBaileys && !m.fromMe && m.text) {
       const aiChatPlugin = global.plugins['ai-chat.js']
-      if (aiChatPlugin) {
+      const aiChatHandler = aiChatPlugin?.default || aiChatPlugin
+      if (typeof aiChatHandler === 'function') {
         try {
-          await aiChatPlugin.call(this, m, { conn: this, text: m.text, usedPrefix: '', command: 'ai' })
+          await aiChatHandler.call(this, m, { conn: this, text: m.text, usedPrefix: '', command: 'ai' })
           return // Stop further processing
         } catch (e) {
           console.error('Session AI Chat Error:', e)

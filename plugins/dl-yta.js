@@ -1,23 +1,8 @@
-import ytdl from '@distube/ytdl-core'
 import fs from 'fs'
-import path from 'path'
 import os from 'os'
-import { pipeline } from 'stream'
-import { promisify } from 'util'
+import { downloadYouTubeAudio } from '../lib/youtube-downloader.js'
 
-const streamPipeline = promisify(pipeline)
 const tmpDir = os.tmpdir()
-
-// Load cookies for YouTube
-let agent
-try {
-  if (fs.existsSync('Assets/cookies.json')) {
-    const cookies = JSON.parse(fs.readFileSync('Assets/cookies.json', 'utf-8'))
-    agent = ytdl.createAgent(cookies)
-  }
-} catch (e) {
-  console.error('Error loading YouTube cookies:', e)
-}
 
 let handler = async (m, { conn, args, usedPrefix, command }) => {
   if (!args || !args[0]) throw `✳️ Example :\n${usedPrefix + command} https://youtu.be/YzkTFFwxtXI`
@@ -26,22 +11,12 @@ let handler = async (m, { conn, args, usedPrefix, command }) => {
   try {
     await m.reply('⏳ Processing your request, please wait...');
     
-    const info = await ytdl.getInfo(args[0], { agent })
-    const title = info.videoDetails.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')
-    const filePath = path.join(tmpDir, `${title}.mp3`)
-    
-    const stream = ytdl(args[0], {
-      quality: 'highestaudio',
-      filter: 'audioonly',
-      agent
-    })
-    
-    await streamPipeline(stream, fs.createWriteStream(filePath))
+    const audio = await downloadYouTubeAudio(args[0], tmpDir)
     
     const message = {
-      audio: { url: filePath },
-      mimetype: 'audio/mpeg',
-      fileName: `${title}.mp3`,
+      audio: { url: audio.filePath },
+      mimetype: audio.mimetype,
+      fileName: audio.fileName,
       ptt: false
     };
     
@@ -49,7 +24,7 @@ let handler = async (m, { conn, args, usedPrefix, command }) => {
     
     // Cleanup
     setTimeout(() => {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      if (fs.existsSync(audio.filePath)) fs.unlinkSync(audio.filePath)
     }, 10000)
     
   } catch (error) {
