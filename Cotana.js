@@ -193,15 +193,6 @@ const {
   closeConnection = async () => {}
 } = authState
 
-const { version: waWebVersion } = await fetchLatestBaileysVersion().catch(async error => {
-  console.warn(
-    chalk.yellow(`Unable to fetch latest Baileys version; trying WhatsApp Web version: ${error.message}`)
-  )
-  return fetchLatestWaWebVersion().catch(waError => {
-    console.warn(
-      chalk.yellow(`Unable to fetch latest WhatsApp Web version; using bundled fallback: ${waError.message}`)
-    )
-    return { version: [2, 3000, 1017531287] }
 const { version: waWebVersion } = await withTimeout(
   fetchLatestBaileysVersion(),
   10000,
